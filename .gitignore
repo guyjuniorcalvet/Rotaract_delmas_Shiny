@@ -1,0 +1,11 @@
+# Fichiers de session RStudio
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# Fichier de base de données des identifiants !! SÉCURITÉ !!
+credentials.sqlite
+
+# Dossiers de cache ou de packages locaux
+rsconnect/
