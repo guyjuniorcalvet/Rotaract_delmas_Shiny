@@ -3,6 +3,7 @@
 .Rhistory
 .RData
 .Ruserdata
+.Renviron
 
 # Fichier de base de données des identifiants !! SÉCURITÉ !!
 credentials.sqlite
