@@ -1,0 +1,5 @@
+DB_HOST="34.148.67.245"
+DB_USER="shiny_app_user_rtcdelmas'@'%"
+DB_PASS="rtcDelmas@25"
+DB_NAME="Rotaract_de_Delmas"
+DB_PORT="3306"
