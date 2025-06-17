@@ -35,9 +35,9 @@ library(forcats)
 get_db_config <- function() {
   list(
     dbname   = Sys.getenv("DB_NAME", "Rotaract_de_Delmas"),
-    host     = Sys.getenv("DB_HOST", "localhost"),
-    user     = Sys.getenv("DB_USER", "root"),
-    password = Sys.getenv("DB_PASS", ""),
+    host     = Sys.getenv("DB_HOST", "34.148.67.245"),
+    user     = Sys.getenv("DB_USER", "shiny_app_user_rtcdelmas'@'%"),
+    password = Sys.getenv("DB_PASS", "rtcDelmas@25"),
     port     = as.integer(Sys.getenv("DB_PORT", 3306))
   )
 }
