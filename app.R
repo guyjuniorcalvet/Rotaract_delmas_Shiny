@@ -465,11 +465,15 @@ server <- function(input, output, session) {
   output$custom_query_output <- DT::renderDataTable({ DT::datatable(custom_query_result(), options=list(pageLength=10, scrollX=T), rownames=F)})
   
   # --- 8. PIED DE PAGE ET FIN DE SESSION ---
-  output$footer_last_update_text <- renderText({ paste("Dernière mise à jour :", format(Sys.time(), "%d %B %Y à %H:%M")) })
+  output$footer_last_update_text <- renderText({ 
+    paste("Dernière mise à jour :", format(Sys.time(), "%d %B %Y à %H:%M")) 
+  })
   
   onSessionEnded(function() {
-    # CORRECTION : Utiliser la variable non-réactive pour la déconnexion
+    # On utilise la variable non-réactive `db_connection_object`
+    # car le contexte réactif de la session n'existe plus ici.
     if (!is.null(db_connection_object) && dbIsValid(db_connection_object)) {
+      message("Session terminée. Déconnexion de la base de données.")
       dbDisconnect(db_connection_object)
     }
   })
