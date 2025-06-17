@@ -6,7 +6,7 @@
 
 # Fichier de base de données des identifiants !! SÉCURITÉ !!
 credentials.sqlite
-Renviron
+.Renviron
 
 # Dossiers de cache ou de packages locaux
 rsconnect/
