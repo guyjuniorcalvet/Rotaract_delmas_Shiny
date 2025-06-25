@@ -1,28 +1,30 @@
 # 0. PACKAGES & SETUP
 # ==========================================================================
-# installez le package 'pool' si ce n'est pas déjà fait
-# install.packages(c("shiny", "DBI", "RMariaDB", "pool", "ggplot2", "dplyr", "shinyjs", "DT", "bslib", "fontawesome", "shinymanager", "lubridate", "sodium", "forcats"))
+# installez les packages si ce n'est pas déjà fait
+# install.packages(c("shiny", "DBI", "RMariaDB", "pool", "ggplot2", "dplyr", "shinyjs", 
+#                    "DT", "bslib", "fontawesome", "shinymanager", "lubridate", "sodium", 
+#                    "forcats", "plotly", "thematic"))
 
 library(shiny)
 library(DBI); library(RMariaDB); library(pool); library(ggplot2); library(dplyr); library(shinyjs)
 library(DT); library(bslib); library(fontawesome); library(shinymanager); library(lubridate); library(sodium)
 library(forcats)
+library(plotly)     # Pour les graphiques interactifs
+library(thematic)   # Pour harmoniser le thème des graphiques
 
 # --- Fonctions et constantes ----
 # ==========================================================================
 get_db_config <- function() {
-  # Pour le déploiement sur shinyapps.io (plan gratuit/sans variables d'env)
-  # les identifiants sont mis en dur.
   list(
     dbname   = "Rotaract_de_Delmas",
-    host     = "34.148.67.245", # <-- REMPLACEZ PAR VOTRE VRAIE IP
-    user     = "shiny_app_user_rtcdelmas'@'%",             # <-- REMPLACEZ PAR VOTRE VRAI UTILISATEUR
-    password = "rtcDelmas@25",           # <-- REMPLACEZ PAR VOTRE VRAI MOT DE PASSE
+    host     = "34.148.67.245",
+    user     = "shiny_app_user_rtcdelmas'@'%",
+    password = "rtcDelmas@25",
     port     = 3306
   )
 }
 
-APP_VERSION <- "2.0.0" # Passage à une version majeure avec le pooling
+APP_VERSION <- "2.1.0" # Version avec graphiques interactifs
 
 # --- Thème bslib ----
 # ==========================================================================
@@ -38,7 +40,7 @@ app_light_theme <- bs_theme(
   "font-family-sans-serif" = "'Segoe UI', sans-serif"
 )
 
-# 1. UI DEFINITION (inchangée, retour à la version propre)
+# 1. UI DEFINITION
 # ==========================================================================
 ui_content <- page_navbar(
   id = "main_navbar",
@@ -75,7 +77,10 @@ ui <- secure_app(ui_content, language = "fr")
 # ==========================================================================
 server <- function(input, output, session) {
   
-  # --- 1. GESTION DE SESSION ET AUTHENTIFICATION (inchangée) ---
+  # Appliquer le thème bslib aux graphiques ggplot et plotly
+  thematic::thematic_shiny()
+  
+  # --- 1. GESTION DE SESSION ET AUTHENTIFICATION ---
   autoInvalidate <- reactiveTimer(30000)
   observe({ autoInvalidate(); input$main_navbar })
   
@@ -100,8 +105,6 @@ server <- function(input, output, session) {
   })
   
   # --- 2. GESTION DE LA CONNEXION BDD AVEC UN POOL ---
-  # Cette section remplace l'ancienne gestion de la connexion
-  
   db_pool <- tryCatch({
     config <- get_db_config()
     pool <- dbPool(
@@ -120,7 +123,6 @@ server <- function(input, output, session) {
     NULL
   })
   
-  # Fermeture propre du pool quand la session se termine
   onSessionEnded(function() {
     if (!is.null(db_pool)) {
       message("🚪 Session terminée. Fermeture du pool de connexions.")
@@ -128,10 +130,9 @@ server <- function(input, output, session) {
     }
   })
   
-  # Déclencheur pour rafraîchir les données
   data_trigger <- reactiveVal(Sys.time())
   
-  # --- 3. CONSTRUCTION DYNAMIQUE DU MENU (inchangée) ---
+  # --- 3. CONSTRUCTION DYNAMIQUE DU MENU ---
   menu_inserted <- reactiveVal(FALSE)
   observeEvent(res_auth, {
     req(res_auth$user, !menu_inserted())
@@ -139,16 +140,43 @@ server <- function(input, output, session) {
     roles_config <- list("Développeur" = c("vues", "saisie", "requetes_simples", "requetes_sql"), "Président(e)" = c("vues", "saisie", "requetes_simples", "requetes_sql"), "PastPrésident(e)" = c("vues", "saisie", "requetes_simples"), "Vice-président(e)" = c("vues", "saisie"), "Secrétaire" = c("vues", "saisie"))
     user_permissions <- roles_config[[current_user_role]]
     if (is.null(user_permissions)) return()
+    
     menu_items <- list()
-    if ("vues" %in% user_permissions) { menu_items <- c(menu_items, list( nav_panel(title = tagList(icon("chart-pie"), "Vues d'informations"), value = "vue_info_tab", fluidPage( titlePanel("Visualisation des Données"), p("Choisissez une table, puis un type de visualisation pour générer un graphique."), fluidRow( column(6, selectInput("table_select_vue", "1. Choisir une table :", c("Membres", "Activites", "Cotisations", "Presence"))), column(6, uiOutput("graph_type_ui_vue")) ), hr(), conditionalPanel( condition = "input.graph_type_select_vue != null && input.graph_type_select_vue != ''", h4("Graphique Généré"), plotOutput("main_plot_vue"), div(style="text-align: right; margin-top: 15px;", downloadButton("download_plot_vue", "Télécharger le graphique", icon = icon("download"))), hr() ), h4("Données brutes (aperçu)"), DT::dataTableOutput("table_view_dt_vue") ) ) )) }
+    if ("vues" %in% user_permissions) {
+      menu_items <- c(menu_items, list(
+        nav_panel(title = tagList(icon("chart-pie"), "Vues d'informations"), value = "vue_info_tab", 
+                  fluidPage(
+                    titlePanel("Visualisation des Données"), 
+                    p("Choisissez une table, puis un type de visualisation pour générer un graphique interactif."), 
+                    fluidRow(
+                      column(6, selectInput("table_select_vue", "1. Choisir une table :", c("Membres", "Activites", "Cotisations", "Presence"))),
+                      column(6, uiOutput("graph_type_ui_vue"))
+                    ),
+                    hr(), 
+                    conditionalPanel(
+                      condition = "input.graph_type_select_vue != null && input.graph_type_select_vue != ''",
+                      h4("Graphique Généré"),
+                      plotlyOutput("main_plot_vue"), # <-- CHANGEMENT ICI
+                      hr()
+                    ), 
+                    h4("Données brutes (aperçu)"),
+                    DT::dataTableOutput("table_view_dt_vue")
+                  )
+        )
+      ))
+    }
     if ("saisie" %in% user_permissions) { menu_items <- c(menu_items, list( nav_panel(title = tagList(icon("keyboard"), "Saisie de nouvelles données"), value = "saisie_donnees_tab", fluidPage( br(), h3("Ajouter de Nouvelles Entrées"), sidebarLayout( sidebarPanel( width = 4, selectInput("table_select_saisie", "Choisir une table pour l'ajout :", choices = c("Membres", "Activites", "Cotisations", "Presence")), uiOutput("form_ui_ajout"), actionButton("submit_ajout", "Ajouter à la base de données", icon = icon("plus"), class = "btn-success w-100"), hr(), h5("Aperçu (5 dernières entrées)"), tableOutput("table_view_ajout_preview") ), mainPanel( width = 8, h4("Référence (10 dernières entrées)"), DT::dataTableOutput("table_view_saisie_dt_ref") ) ) ) ) )) }
     if ("requetes_simples" %in% user_permissions) { menu_items <- c(menu_items, list( nav_panel(title = tagList(icon("search"), "Requêtes Simples"), value = "requetes_simples_tab", fluidPage( titlePanel("Exécuter des Requêtes Prédéfinies"), p("Posez une question simple à la base de données sans écrire de code SQL."), selectInput("simple_query_type", "1. Choisir le type de recherche :", c("", "Membres par Statut" = "membres_statut", "Activités dans une période" = "activites_periode", "Cotisations d'un membre" = "cotisations_membre")), uiOutput("simple_query_params_ui"), actionButton("run_simple_query", "Exécuter la recherche", icon = icon("play")), hr(), h4("Résultats de la recherche"), DT::dataTableOutput("simple_query_result_table"), uiOutput("simple_query_graph_ui") ) ) )) }
     if ("requetes_sql" %in% user_permissions) { menu_items <- c(menu_items, list( nav_panel(title = tagList(icon("code-branch"), "Requêtes Complexes (SQL)"), value = "requetes_specifiques_tab", fluidPage( titlePanel("Exécuter des Requêtes SQL"), textAreaInput("custom_query_input", "Entrez votre requête SQL SELECT ici:", rows = 5, width = "100%"), actionButton("run_custom_query", "Exécuter la requête", icon = icon("play")), hr(), h4("Résultats de la requête:"), DT::dataTableOutput("custom_query_output") ) ) )) }
-    if (length(menu_items) > 0) { full_menu <- nav_menu(title = "Menu", icon = icon("bars"), align = "right", !!!menu_items); nav_insert(id = "main_navbar", nav = full_menu, target = "Accueil", position = "after"); menu_inserted(TRUE) }
+    
+    if (length(menu_items) > 0) {
+      full_menu <- nav_menu(title = "Menu", icon = icon("bars"), align = "right", !!!menu_items)
+      nav_insert(id = "main_navbar", nav = full_menu, target = "Accueil", position = "after")
+      menu_inserted(TRUE)
+    }
   })
   
   # --- 4. FONCTIONS D'AIDE UTILISANT LE POOL ---
-  # Ces fonctions utilisent maintenant 'db_pool'
   get_membres_choices <- reactive({ req(db_pool); data_trigger(); tryCatch({ membres <- dbGetQuery(db_pool, "SELECT ID_Membre, Nom, Prenom FROM Membres ORDER BY Nom, Prenom"); setNames(membres$ID_Membre, paste(membres$Nom, membres$Prenom)) }, error = function(e) c("Erreur" = "")) })
   get_statut_choices <- reactive({ req(db_pool); data_trigger(); tryCatch({ dbGetQuery(db_pool, "SELECT DISTINCT Statut FROM Membres WHERE Statut IS NOT NULL ORDER BY Statut") %>% pull(Statut) }, error = function(e){ c() }) })
   get_activites_choices <- reactive({ req(db_pool); data_trigger(); tryCatch({ activites <- dbGetQuery(db_pool, "SELECT ID_Activite, Theme, Date_activite FROM Activites ORDER BY Date_activite DESC, Theme"); setNames(activites$ID_Activite, paste(activites$Theme, "- (", format(as.Date(activites$Date_activite), "%d/%m/%Y"), ")")) }, error = function(e) c("Erreur" = "")) })
@@ -156,9 +184,33 @@ server <- function(input, output, session) {
   # --- 5. PAGE : VUES D'INFORMATIONS ---
   output$graph_type_ui_vue <- renderUI({ req(input$table_select_vue); choices <- switch(input$table_select_vue, "Membres" = c("", "Répartition par Genre" = "membres_genre", "Répartition par Statut" = "membres_statut", "Membres par Année d'entrée" = "membres_annee"), "Activites" = c("", "Activités par Type" = "activites_type", "Activités par Mode (Présentiel/Distanciel)" = "activites_mode"), "Cotisations" = c("", "Total par Type de cotisation" = "cotisations_type", "Evolution des cotisations" = "cotisations_temps"), "Presence" = c("", "Répartition par Statut de présence" = "presence_statut", "Participation par activité" = "presence_activite")); selectInput("graph_type_select_vue", "2. Choisir le type de visualisation :", choices) })
   vue_data <- reactive({ data_trigger(); req(db_pool, input$table_select_vue); dbReadTable(db_pool, input$table_select_vue) })
-  plot_vue_reactive <- reactive({ req(input$graph_type_select_vue, input$graph_type_select_vue != "", nrow(vue_data()) > 0); data <- vue_data(); p <- switch(input$graph_type_select_vue, "membres_genre" = ggplot(data, aes(x = fct_infreq(Genre), fill = Genre)) + geom_bar() + labs(title = "Répartition des Membres par Genre", x="Genre", y="Nombre"), "membres_statut" = ggplot(data, aes(x = fct_infreq(Statut), fill=Statut)) + geom_bar() + labs(title="Répartition par Statut") + theme(axis.text.x = element_text(angle=45, hjust=1)), "membres_annee" = data %>% mutate(Date_debut = as.Date(Date_debut)) %>% mutate(Annee_entree = year(Date_debut)) %>% count(Annee_entree) %>% ggplot(aes(x=Annee_entree, y=n)) + geom_line() + geom_point() + labs(title="Nouveaux membres par année", x="Année", y="Nombre"), "activites_type" = ggplot(data, aes(x=fct_infreq(Type_activite), fill=Type_activite)) + geom_bar() + labs(title="Nombre d'activités par type") + coord_flip(), "activites_mode" = data %>% mutate(Mode = if_else(Présentiel == 1, "Présentiel", "Distanciel")) %>% ggplot(aes(x=fct_infreq(Mode), fill=Mode)) + geom_bar() + labs(title="Répartition des activités par mode"), "cotisations_type" = data %>% group_by(Type_cotisation) %>% summarise(Total = sum(Montant, na.rm=TRUE)) %>% ggplot(aes(x=reorder(Type_cotisation, Total), y=Total, fill=Type_cotisation)) + geom_col() + labs(title="Total par type de cotisation", y="Montant (HTG)") + coord_flip(), "cotisations_temps" = data %>% mutate(Date_cotisation = as.Date(Date_cotisation)) %>% mutate(AnneeMois = floor_date(Date_cotisation, "month")) %>% group_by(AnneeMois) %>% summarise(Total = sum(Montant, na.rm=TRUE)) %>% ggplot(aes(x=AnneeMois, y=Total)) + geom_line(color="red") + geom_point() + labs(title="Evolution mensuelle des cotisations", x="Mois", y="Montant Total (HTG)"), "presence_statut" = ggplot(data, aes(x=fct_infreq(Statut), fill=Statut)) + geom_bar() + labs(title="Répartition par statut de présence"), "presence_activite" = { data_activites <- dbReadTable(db_pool, "Activites"); data %>% filter(Statut == "Présent") %>% count(ID_activite, name="Participants") %>% left_join(select(data_activites, ID_Activite, Theme), by=c("ID_activite" = "ID_Activite")) %>% ggplot(aes(x=reorder(Theme, Participants), y=Participants, fill=Theme)) + geom_col(show.legend=FALSE) + coord_flip() + labs(title="Nombre de participants par activité", x="Activité") }); p + theme_minimal(base_size=14) })
-  output$main_plot_vue <- renderPlot({ plot_vue_reactive() })
-  output$download_plot_vue <- downloadHandler( filename = function() { paste0("graphique_", input$table_select_vue, "_", input$graph_type_select_vue, ".png") }, content = function(file) { ggsave(file, plot = plot_vue_reactive(), device = "png", width = 10, height = 7, dpi = 300) } )
+  
+  plot_vue_reactive <- reactive({
+    req(input$graph_type_select_vue, input$graph_type_select_vue != "", nrow(vue_data()) > 0)
+    data <- vue_data()
+    p <- switch(
+      input$graph_type_select_vue,
+      "membres_genre" = data %>% count(Genre) %>% ggplot(aes(x = fct_reorder(Genre, -n), y = n, fill = Genre, text = paste("Genre:", Genre, "<br>Nombre:", n))) + geom_col() + labs(title = "Répartition des Membres par Genre", x="Genre", y="Nombre"),
+      "membres_statut" = data %>% count(Statut) %>% ggplot(aes(x = fct_reorder(Statut, -n), y = n, fill = Statut, text = paste("Statut:", Statut, "<br>Nombre:", n))) + geom_col() + labs(title="Répartition par Statut", x="Statut", y="Nombre") + theme(axis.text.x = element_text(angle=45, hjust=1)),
+      "membres_annee" = data %>% mutate(Date_debut = as.Date(Date_debut), Annee_entree = year(Date_debut)) %>% count(Annee_entree) %>% ggplot(aes(x=Annee_entree, y=n, text = paste("Année:", Annee_entree, "<br>Nouveaux membres:", n))) + geom_line(color="#D32F2F") + geom_point() + labs(title="Nouveaux membres par année", x="Année", y="Nombre"),
+      "activites_type" = data %>% count(Type_activite) %>% ggplot(aes(x=fct_reorder(Type_activite, n), y=n, fill=Type_activite, text = paste("Type:", Type_activite, "<br>Nombre:", n))) + geom_col() + labs(title="Nombre d'activités par type", x="", y="Nombre") + coord_flip(),
+      "activites_mode" = data %>% mutate(Mode = if_else(Présentiel == 1, "Présentiel", "Distanciel")) %>% count(Mode) %>% ggplot(aes(x=fct_reorder(Mode, -n), y=n, fill=Mode, text = paste("Mode:", Mode, "<br>Nombre:", n))) + geom_col() + labs(title="Répartition des activités par mode", x="Mode", y="Nombre"),
+      "cotisations_type" = data %>% group_by(Type_cotisation) %>% summarise(Total = sum(Montant, na.rm=TRUE)) %>% ggplot(aes(x=reorder(Type_cotisation, Total), y=Total, fill=Type_cotisation, text = paste("Type:", Type_cotisation, "<br>Total:", scales::comma(Total, accuracy=1), "HTG"))) + geom_col() + labs(title="Total par type de cotisation", y="Montant (HTG)", x="") + coord_flip(),
+      "cotisations_temps" = data %>% mutate(Date_cotisation = as.Date(Date_cotisation), AnneeMois = floor_date(Date_cotisation, "month")) %>% group_by(AnneeMois) %>% summarise(Total = sum(Montant, na.rm=TRUE)) %>% ggplot(aes(x=AnneeMois, y=Total, text = paste("Mois:", format(AnneeMois, "%B %Y"), "<br>Total:", scales::comma(Total, accuracy=1), "HTG"))) + geom_line(color="#D32F2F") + geom_point() + labs(title="Evolution mensuelle des cotisations", x="Mois", y="Montant Total (HTG)"),
+      "presence_statut" = data %>% count(Statut) %>% ggplot(aes(x=fct_reorder(Statut, -n), y=n, fill=Statut, text=paste("Statut:", Statut, "<br>Nombre:", n))) + geom_col() + labs(title="Répartition par statut de présence", x="Statut", y="Nombre"),
+      "presence_activite" = {
+        data_activites <- dbReadTable(db_pool, "Activites")
+        data %>% filter(Statut == "Présent") %>% count(ID_activite, name="Participants") %>% left_join(select(data_activites, ID_Activite, Theme), by=c("ID_activite" = "ID_Activite")) %>% ggplot(aes(x=reorder(Theme, Participants), y=Participants, fill=Theme, text = paste("Activité:", Theme, "<br>Participants:", Participants))) + geom_col(show.legend=FALSE) + coord_flip() + labs(title="Nombre de participants par activité", x="Activité", y="Participants")
+      }
+    )
+    
+    p <- p + theme_minimal(base_size = 14) + theme(legend.position = "none") # La légende est souvent redondante avec plotly
+    
+    ggplotly(p, tooltip = "text") %>%
+      config(displaylogo = FALSE, modeBarButtonsToRemove = c("select2d", "lasso2d", "sendDataToCloud"))
+  })
+  
+  output$main_plot_vue <- renderPlotly({ plot_vue_reactive() })
   output$table_view_dt_vue <- DT::renderDataTable({ DT::datatable(vue_data(), options = list(pageLength = 10, scrollX = TRUE), rownames = FALSE) })
   
   # --- 6. PAGE : SAISIE DE DONNÉES ---
@@ -172,10 +224,46 @@ server <- function(input, output, session) {
   output$simple_query_params_ui <- renderUI({ req(input$simple_query_type); switch(input$simple_query_type, "membres_statut" = selectInput("param_statut", "Choisir un statut :", choices = get_statut_choices(), multiple=TRUE), "activites_periode" = dateRangeInput("param_periode", "Choisir une période :", start = Sys.Date() - 30, end = Sys.Date(), language="fr"), "cotisations_membre" = selectInput("param_membre_id", "Choisir un membre :", choices = get_membres_choices())) })
   simple_query_result_data <- eventReactive(input$run_simple_query, { req(input$simple_query_type, db_pool); query <- ""; if (input$simple_query_type == "membres_statut" && !is.null(input$param_statut)) { query <- sqlInterpolate(db_pool, "SELECT Nom, Prenom, Statut, Email, Telephone FROM Membres WHERE Statut IN (?statuts)", statuts = list(input$param_statut)) } else if (input$simple_query_type == "activites_periode" && !is.null(input$param_periode)) { query <- sqlInterpolate(db_pool, "SELECT Theme, Date_activite, Type_activite, Lieu FROM Activites WHERE Date_activite BETWEEN ?start AND ?end ORDER BY Date_activite DESC", start = input$param_periode[1], end = input$param_periode[2]) } else if (input$simple_query_type == "cotisations_membre" && !is.null(input$param_membre_id)) { query <- sqlInterpolate(db_pool, "SELECT c.Date_cotisation, c.Montant, c.Type_cotisation, c.Mode_paiement FROM Cotisations c WHERE c.ID_membre = ?id ORDER BY c.Date_cotisation DESC", id = input$param_membre_id) }; if (nchar(query) > 0) dbGetQuery(db_pool, query) else data.frame() })
   output$simple_query_result_table <- DT::renderDataTable({ DT::datatable(simple_query_result_data(), options = list(pageLength = 10, scrollX = TRUE), rownames=FALSE) })
-  output$simple_query_graph_ui <- renderUI({ req(nrow(simple_query_result_data()) > 0); tagList( hr(), h4("Visualisation des résultats"), plotOutput("simple_query_plot"), div(style="text-align: right; margin-top: 15px;", downloadButton("download_plot_req", "Télécharger le graphique", icon = icon("download"))) ) })
-  plot_req_reactive <- reactive({ req(nrow(simple_query_result_data()) > 0); data <- simple_query_result_data(); p <- if(input$simple_query_type == "cotisations_membre"){ ggplot(data, aes(x=as.Date(Date_cotisation), y=Montant, fill=Type_cotisation)) + geom_col() + labs(title="Cotisations pour le membre sélectionné", x="Date", y="Montant") } else if (input$simple_query_type == "membres_statut") { ggplot(data, aes(x=fct_infreq(Statut), fill=Statut)) + geom_bar() + labs(title="Répartition des membres trouvés par statut") } else { ggplot() + annotate("text", x=1,y=1, label="Visualisation non disponible pour cette requête.") + theme_void() }; p + theme_minimal(base_size=14) })
-  output$simple_query_plot <- renderPlot({ plot_req_reactive() })
-  output$download_plot_req <- downloadHandler( filename = function() { paste0("graphique_requete_", input$simple_query_type, ".png") }, content = function(file) { ggsave(file, plot = plot_req_reactive(), device = "png", width=10, height=7, dpi=300) } )
+  
+  output$simple_query_graph_ui <- renderUI({
+    req(nrow(simple_query_result_data()) > 0)
+    # Ne montrer l'UI du graphique que pour les requêtes qui en ont un
+    if (input$simple_query_type %in% c("cotisations_membre", "membres_statut")) {
+      tagList(
+        hr(),
+        h4("Visualisation des résultats"),
+        plotlyOutput("simple_query_plot")
+      )
+    }
+  })
+  
+  plot_req_reactive <- reactive({
+    req(nrow(simple_query_result_data()) > 0)
+    data <- simple_query_result_data()
+    p <- NULL
+    
+    if (input$simple_query_type == "cotisations_membre") {
+      p <- ggplot(data, aes(x=as.Date(Date_cotisation), y=Montant, fill=Type_cotisation, text = paste("Date:", as.Date(Date_cotisation), "<br>Montant:", Montant, "HTG<br>Type:", Type_cotisation))) +
+        geom_col(position="stack") +
+        labs(title="Cotisations pour le membre sélectionné", x="Date", y="Montant")
+    } else if (input$simple_query_type == "membres_statut") {
+      p <- data %>% 
+        count(Statut) %>%
+        ggplot(aes(x=fct_reorder(Statut, -n), y=n, fill=Statut, text=paste("Statut:", Statut, "<br>Nombre:", n))) +
+        geom_col() +
+        labs(title="Répartition des membres trouvés par statut", x="Statut", y="Nombre")
+    }
+    
+    if (!is.null(p)) {
+      p <- p + theme_minimal(base_size = 14) + theme(legend.position = "bottom")
+      ggplotly(p, tooltip = "text") %>%
+        config(displaylogo = FALSE)
+    }
+  })
+  
+  output$simple_query_plot <- renderPlotly({
+    plot_req_reactive()
+  })
   
   # --- 8. PAGE : REQUÊTES COMPLEXES (SQL) ---
   custom_query_result <- eventReactive(input$run_custom_query, { req(db_pool, input$custom_query_input); if (!grepl("^\\s*SELECT", input$custom_query_input, ignore.case = TRUE)) { return(data.frame(Message="Action non autorisée. Seules les requêtes SELECT sont permises.")) }; tryCatch( dbGetQuery(db_pool, input$custom_query_input), error=function(e){ data.frame(Erreur=e$message) } ) })
