@@ -22,8 +22,13 @@ get_db_config <- function() {
   )
 }
 
-APP_VERSION <- "3.1.0" # Ajout de recherches simples (Poste, Pays, Profession, Anniversaire)
-LAST_UPDATE_DATE <- "6 juillet 2025 à 14:00"
+# Mise à jour dynamique de la date et l'heure
+tryCatch(Sys.setlocale("LC_TIME", "fr_FR.UTF-8"), 
+         warning = function(w) tryCatch(Sys.setlocale("LC_TIME", "French"), 
+                                        error = function(e) message("Locale française non trouvée.")))
+APP_VERSION <- "3.3.0" # Version avec disposition corrigée du tableau
+LAST_UPDATE_DATE <- format(Sys.time(), "le %d %B %Y à %Hh%M")
+
 
 # --- THÈME BSLIB ----
 # ==========================================================================
@@ -105,7 +110,6 @@ server <- function(input, output, session) {
     user_permissions <- roles_config[[current_user_role]]
     if (is.null(user_permissions)) return()
     
-    # MODIFICATION : Ajout de nouvelles options de recherche dans le menu
     simple_query_choices <- c(
       "", 
       "Membres par Statut" = "membres_statut", 
@@ -118,17 +122,56 @@ server <- function(input, output, session) {
     )
     
     menu_items <- list()
-    if ("vues" %in% user_permissions) { menu_items <- c(menu_items, list( nav_panel(title = tagList(icon("chart-pie"), "Tableau de bord"), value = "vue_info_tab", fluidPage( titlePanel("Visualisation des Données"), p("Choisissez une table, puis un type de visualisation pour générer un graphique interactif."), fluidRow( column(4, selectInput("table_select_vue", "1. Choisir une table :", c("Membres", "Activites", "Cotisations", "Presence"))), column(4, uiOutput("graph_type_ui_vue")), column(4, uiOutput("chart_type_ui_vue")) ), hr(), conditionalPanel( condition = "input.graph_type_select_vue != null && input.graph_type_select_vue != '' && input.chart_type_select_vue != null", h4("Graphique Généré"), plotlyOutput("main_plot_vue"), hr() ), h4("Données brutes (aperçu)"), DT::dataTableOutput("table_view_dt_vue") ) ) )) }
+    # MODIFICATION : Structure UI corrigée pour le Tableau de bord
+    if ("vues" %in% user_permissions) {
+      menu_items <- c(menu_items, list(
+        nav_panel(
+          title = tagList(icon("chart-pie"), "Tableau de bord"), 
+          value = "vue_info_tab",
+          fluidPage(
+            # --- SECTION DU HAUT : Paramètres et Graphique ---
+            sidebarLayout(
+              sidebarPanel(
+                width = 3,
+                h4("Paramètres", style = "color: #D32F2F;"),
+                p("Configurez ici la visualisation souhaitée."),
+                hr(),
+                selectInput("table_select_vue", "1. Choisir une source de données :", c("Membres", "Activites", "Cotisations", "Presence")),
+                uiOutput("graph_type_ui_vue"),
+                uiOutput("chart_type_ui_vue")
+              ),
+              mainPanel(
+                width = 9,
+                conditionalPanel(
+                  condition = "input.graph_type_select_vue != null && input.graph_type_select_vue != '' && input.chart_type_select_vue != null",
+                  uiOutput("plot_title_ui"), 
+                  plotlyOutput("main_plot_vue", height = "500px")
+                )
+              )
+            ), # Fin de sidebarLayout
+            
+            # --- SECTION DU BAS : Tableau de données pleine largeur ---
+            hr(), 
+            fluidRow(
+              column(12, 
+                     h4("Aperçu des données brutes"),
+                     DT::dataTableOutput("table_view_dt_vue")
+              )
+            )
+          )
+        )
+      ))
+    }
     if ("saisie" %in% user_permissions) { menu_items <- c(menu_items, list( nav_panel(title = tagList(icon("keyboard"), "Saisie de nouvelles données"), value = "saisie_donnees_tab", fluidPage( br(), h3("Ajouter de Nouvelles Entrées"), sidebarLayout( sidebarPanel(width = 4, selectInput("table_select_saisie", "Choisir une table pour l'ajout :", choices = c("Membres", "Activites", "Cotisations", "Presence")), uiOutput("form_ui_ajout"), actionButton("submit_ajout", "Ajouter à la base de données", icon = icon("plus"), class = "btn-success w-100"), hr(), h5("Aperçu (5 dernières entrées)"), tableOutput("table_view_ajout_preview") ), mainPanel(width = 8, h4("Référence (10 dernières entrées)"), DT::dataTableOutput("table_view_saisie_dt_ref") ) ) ) ) )) }
-    if ("requetes_simples" %in% user_permissions) { menu_items <- c(menu_items, list( nav_panel(title = tagList(icon("search"), "Recherches Simples"), value = "requetes_simples_tab", fluidPage( titlePanel("Exécuter des Requêtes Prédéfinies"), p("Posez une question simple à la base de données sans écrire de code SQL."), selectInput("simple_query_type", "1. Choisir le type de recherche :", choices = simple_query_choices), uiOutput("simple_query_params_ui"), actionButton("run_simple_query", "Exécuter la recherche", icon = icon("play")), hr(), h4("Résultats de la recherche"), DT::dataTableOutput("simple_query_result_table"), uiOutput("simple_query_graph_ui") ) ) )) }
-    if ("requetes_sql" %in% user_permissions) { menu_items <- c(menu_items, list( nav_panel(title = tagList(icon("code-branch"), "Recherches Complexes (SQL)"), value = "requetes_specifiques_tab", fluidPage( titlePanel("Exécuter des Requêtes SQL"), textAreaInput("custom_query_input", "Entrez votre requête SQL SELECT ici:", rows = 5, width = "100%"), actionButton("run_custom_query", "Exécuter la requête", icon = icon("play")), hr(), h4("Résultats de la requête:"), DT::dataTableOutput("custom_query_output") ) ) )) }
+    if ("requetes_simples" %in% user_permissions) { menu_items <- c(menu_items, list( nav_panel(title = tagList(icon("search"), "Recherches simples"), value = "requetes_simples_tab", fluidPage( titlePanel("Exécuter des Requêtes Prédéfinies"), p("Posez une question simple à la base de données sans écrire de code SQL."), selectInput("simple_query_type", "1. Choisir le type de recherche :", choices = simple_query_choices), uiOutput("simple_query_params_ui"), actionButton("run_simple_query", "Exécuter la recherche", icon = icon("play")), hr(), h4("Résultats de la recherche"), DT::dataTableOutput("simple_query_result_table"), uiOutput("simple_query_graph_ui") ) ) )) }
+    if ("requetes_sql" %in% user_permissions) { menu_items <- c(menu_items, list( nav_panel(title = tagList(icon("code-branch"), "Recherches complexes"), value = "requetes_specifiques_tab", fluidPage( titlePanel("Exécuter des Requêtes SQL"), textAreaInput("custom_query_input", "Entrez votre requête SQL SELECT ici:", rows = 5, width = "100%"), actionButton("run_custom_query", "Exécuter la requête", icon = icon("play")), hr(), h4("Résultats de la requête:"), DT::dataTableOutput("custom_query_output") ) ) )) }
+    
     if (length(menu_items) > 0) { full_menu <- nav_menu(title = "Menu", icon = icon("bars"), align = "right", !!!menu_items); nav_insert(id = "main_navbar", nav = full_menu, target = "Accueil", position = "after"); menu_inserted(TRUE) }
   })
   
   # --- 4. FONCTIONS D'AIDE UTILISANT LE POOL ---
   get_membres_choices <- reactive({ req(db_pool); data_trigger(); tryCatch({ membres <- dbGetQuery(db_pool, "SELECT ID_Membre, Nom, Prenom FROM Membres ORDER BY Nom, Prenom"); setNames(membres$ID_Membre, paste(membres$Nom, membres$Prenom)) }, error = function(e) c("Erreur" = "")) })
   get_activites_choices <- reactive({ req(db_pool); data_trigger(); tryCatch({ activites <- dbGetQuery(db_pool, "SELECT ID_activite, Theme, Date_activite FROM Activites ORDER BY Date_activite DESC, Theme"); setNames(activites$ID_activite, paste(activites$Theme, "- (", format(as.Date(activites$Date_activite), "%d/%m/%Y"), ")")) }, error = function(e) c("Erreur" = "")) })
-  # MODIFICATION : Fonctions d'aide pour les nouvelles recherches
   get_distinct_choices <- function(field) { reactive({ req(db_pool); data_trigger(); tryCatch({ dbGetQuery(db_pool, glue("SELECT DISTINCT {field} FROM Membres WHERE {field} IS NOT NULL ORDER BY {field}")) %>% pull() }, error = function(e){ c() }) }) }
   get_poste_choices <- get_distinct_choices("Poste")
   get_profession_choices <- get_distinct_choices("Profession")
@@ -138,7 +181,38 @@ server <- function(input, output, session) {
   output$graph_type_ui_vue <- renderUI({ req(input$table_select_vue); choices <- switch(input$table_select_vue, "Membres" = c("", "Répartition par Genre" = "membres_genre", "Répartition par Poste" = "membres_poste", "Répartition par Statut" = "membres_statut", "Membres par Année d'entrée" = "membres_annee"), "Activites" = c("", "Activités par Type" = "activites_type", "Activités par Mode (Présentiel/Distanciel)" = "activites_mode"), "Cotisations" = c("", "Total par Type de cotisation" = "cotisations_type", "Evolution des cotisations" = "cotisations_temps"), "Presence" = c("", "Répartition par Statut de présence" = "presence_statut", "Participation par activité" = "presence_activite")); selectInput("graph_type_select_vue", "2. Choisir la visualisation :", choices) })
   output$chart_type_ui_vue <- renderUI({ req(input$graph_type_select_vue); choices <- switch(input$graph_type_select_vue, "membres_genre" = c("Barres" = "bar", "Camembert" = "pie"), "membres_poste" = c("Barres" = "bar", "Camembert" = "pie"), "membres_statut" = c("Barres" = "bar", "Camembert" = "pie"), "membres_annee" = c("Lignes" = "line", "Barres" = "bar"), "activites_type" = c("Barres" = "bar", "Camembert" = "pie"), "activites_mode" = c("Barres" = "bar", "Camembert" = "pie"), "cotisations_type" = c("Barres" = "bar"), "cotisations_temps" = c("Lignes" = "line", "Barres" = "bar"), "presence_statut" = c("Barres" = "bar", "Camembert" = "pie"), "presence_activite" = c("Barres" = "bar"), NULL); if (!is.null(choices)) { selectInput("chart_type_select_vue", "3. Choisir le type de graphique :", choices) } })
   vue_data <- reactive({ data_trigger(); req(db_pool, input$table_select_vue); dbReadTable(db_pool, input$table_select_vue) })
-  plot_vue_reactive <- reactive({ req(input$graph_type_select_vue, input$graph_type_select_vue != "", input$chart_type_select_vue, nrow(vue_data()) > 0); data <- vue_data(); chart_type <- input$chart_type_select_vue; plot_data <- switch( input$graph_type_select_vue, "membres_genre" = data %>% count(Genre, name="value") %>% rename(category = Genre), "membres_poste" = data %>% count(Poste, name="value") %>% rename(category = Poste), "membres_statut" = data %>% count(Statut, name="value") %>% rename(category = Statut), "membres_annee" = data %>% mutate(Annee_entree = year(as.Date(Date_debut))) %>% count(Annee_entree, name="value") %>% rename(category = Annee_entree), "activites_type" = data %>% count(Type_activite, name="value") %>% rename(category = Type_activite), "activites_mode" = data %>% mutate(Mode = if_else(Présentiel == 1, "Présentiel", "Distanciel")) %>% count(Mode, name="value") %>% rename(category = Mode), "cotisations_type" = data %>% group_by(Type_cotisation) %>% summarise(value = sum(Montant, na.rm=TRUE)) %>% rename(category = Type_cotisation), "cotisations_temps" = data %>% mutate(AnneeMois = floor_date(as.Date(Date_cotisation), "month")) %>% group_by(AnneeMois) %>% summarise(value = sum(Montant, na.rm=TRUE)) %>% rename(category = AnneeMois), "presence_statut" = data %>% count(Statut, name="value") %>% rename(category = Statut), "presence_activite" = { data_activites <- dbReadTable(db_pool, "Activites"); data %>% filter(Statut == "Présent") %>% count(ID_activite, name="value") %>% left_join(select(data_activites, ID_activite, Theme), by="ID_activite") %>% filter(!is.na(Theme)) %>% rename(category = Theme) }); all_choices <- switch(isolate(input$table_select_vue), "Membres" = c("Répartition par Genre" = "membres_genre", "Répartition par Poste" = "membres_poste", "Répartition par Statut" = "membres_statut", "Membres par Année d'entrée" = "membres_annee"), "Activites" = c("Activités par Type" = "activites_type", "Activités par Mode (Présentiel/Distanciel)" = "activites_mode"), "Cotisations" = c("Total par Type de cotisation" = "cotisations_type", "Evolution des cotisations" = "cotisations_temps"), "Presence" = c("Répartition par Statut de présence" = "presence_statut", "Participation par activité" = "presence_activite")); plot_title <- names(all_choices)[all_choices == input$graph_type_select_vue]; if (length(plot_title) == 0) plot_title <- "Graphique"; if (chart_type == "pie") { plot_ly(plot_data, labels = ~category, values = ~value, type = 'pie', textinfo = 'label+percent', hoverinfo = 'text', text = ~paste(category, ":", scales::comma(value)), marker = list(colors = RColorBrewer::brewer.pal(max(3, nrow(plot_data)), "Set2"))) %>% layout(title = list(text = plot_title, x = 0.5), legend = list(orientation = 'h', xanchor = "center", x = 0.5, y = -0.1), showlegend = TRUE) %>% config(displaylogo = FALSE) } else { is_flipped <- input$graph_type_select_vue %in% c("membres_poste", "activites_type", "cotisations_type", "presence_activite"); p_aes <- if (is_flipped) { aes(x = reorder(category, value), y = value, fill = category, text = paste(category, ":", scales::comma(value))) } else { aes(x = category, y = value, fill = category, text = paste(category, ":", scales::comma(value))) }; p <- ggplot(plot_data, p_aes); if (chart_type == "bar") { p <- p + geom_col() } else if (chart_type == "line") { p <- p + geom_line(aes(group = 1), color = "#D32F2F") + geom_point(color = "#D32F2F") }; p <- p + labs(title = plot_title, x = "", y = "Valeur") + theme_minimal(base_size = 14) + theme(legend.position = "none"); if (is_flipped) p <- p + coord_flip(); ggplotly(p, tooltip = "text") %>% config(displaylogo = FALSE, modeBarButtonsToRemove = c("select2d", "lasso2d", "sendDataToCloud")) } })
+  
+  output$plot_title_ui <- renderUI({
+    req(input$graph_type_select_vue, input$graph_type_select_vue != "")
+    all_choices <- switch(isolate(input$table_select_vue), "Membres" = c("Répartition par Genre" = "membres_genre", "Répartition par Poste" = "membres_poste", "Répartition par Statut" = "membres_statut", "Membres par Année d'entrée" = "membres_annee"), "Activites" = c("Activités par Type" = "activites_type", "Activités par Mode (Présentiel/Distanciel)" = "activites_mode"), "Cotisations" = c("Total par Type de cotisation" = "cotisations_type", "Evolution des cotisations" = "cotisations_temps"), "Presence" = c("Répartition par Statut de présence" = "presence_statut", "Participation par activité" = "presence_activite"))
+    main_title <- names(all_choices)[all_choices == input$graph_type_select_vue]
+    sub_title <- paste("Source des données : Table", isolate(input$table_select_vue))
+    tagList(
+      tags$h4(main_title, style = "font-weight: bold;"),
+      tags$p(sub_title, style = "color: #2979FF; font-style: italic;")
+    )
+  })
+  
+  plot_vue_reactive <- reactive({
+    req(input$graph_type_select_vue, input$graph_type_select_vue != "", input$chart_type_select_vue, nrow(vue_data()) > 0)
+    data <- vue_data()
+    chart_type <- input$chart_type_select_vue
+    plot_data <- switch( input$graph_type_select_vue, "membres_genre" = data %>% count(Genre, name="value") %>% rename(category = Genre), "membres_poste" = data %>% count(Poste, name="value") %>% rename(category = Poste), "membres_statut" = data %>% count(Statut, name="value") %>% rename(category = Statut), "membres_annee" = data %>% mutate(Annee_entree = year(as.Date(Date_debut))) %>% count(Annee_entree, name="value") %>% rename(category = Annee_entree), "activites_type" = data %>% count(Type_activite, name="value") %>% rename(category = Type_activite), "activites_mode" = data %>% mutate(Mode = if_else(Présentiel == 1, "Présentiel", "Distanciel")) %>% count(Mode, name="value") %>% rename(category = Mode), "cotisations_type" = data %>% group_by(Type_cotisation) %>% summarise(value = sum(Montant, na.rm=TRUE)) %>% rename(category = Type_cotisation), "cotisations_temps" = data %>% mutate(AnneeMois = floor_date(as.Date(Date_cotisation), "month")) %>% group_by(AnneeMois) %>% summarise(value = sum(Montant, na.rm=TRUE)) %>% rename(category = AnneeMois), "presence_statut" = data %>% count(Statut, name="value") %>% rename(category = Statut), "presence_activite" = { data_activites <- dbReadTable(db_pool, "Activites"); data %>% filter(Statut == "Présent") %>% count(ID_activite, name="value") %>% left_join(select(data_activites, ID_activite, Theme), by="ID_activite") %>% filter(!is.na(Theme)) %>% rename(category = Theme) })
+    
+    if (chart_type == "pie") {
+      plot_ly(plot_data, labels = ~category, values = ~value, type = 'pie', textinfo = 'label+percent', hoverinfo = 'text', text = ~paste(category, ":", scales::comma(value)), marker = list(colors = RColorBrewer::brewer.pal(max(3, nrow(plot_data)), "Set2"))) %>% 
+        layout(legend = list(orientation = 'h', xanchor = "center", x = 0.5, y = -0.1), showlegend = TRUE) %>% 
+        config(displaylogo = FALSE)
+    } else {
+      is_flipped <- input$graph_type_select_vue %in% c("membres_poste", "activites_type", "cotisations_type", "presence_activite")
+      p_aes <- if (is_flipped) { aes(x = reorder(category, value), y = value, fill = category, text = paste(category, ":", scales::comma(value))) } else { aes(x = category, y = value, fill = category, text = paste(category, ":", scales::comma(value))) }
+      p <- ggplot(plot_data, p_aes)
+      if (chart_type == "bar") { p <- p + geom_col() } else if (chart_type == "line") { p <- p + geom_line(aes(group = 1), color = "#D32F2F") + geom_point(color = "#D32F2F") }
+      p <- p + labs(x = "", y = "Valeur") + theme_minimal(base_size = 14) + theme(legend.position = "none")
+      if (is_flipped) p <- p + coord_flip()
+      ggplotly(p, tooltip = "text") %>% config(displaylogo = FALSE, modeBarButtonsToRemove = c("select2d", "lasso2d", "sendDataToCloud"))
+    }
+  })
   output$main_plot_vue <- renderPlotly({ plot_vue_reactive() })
   output$table_view_dt_vue <- DT::renderDataTable({ DT::datatable(vue_data(), options = list(pageLength = 10, scrollX = TRUE), rownames = FALSE) })
   
@@ -150,43 +224,8 @@ server <- function(input, output, session) {
   output$table_view_saisie_dt_ref <- DT::renderDataTable({ DT::datatable(saisie_ref_data(), options=list(pageLength=5, scrollX=T, rownames=F, searching=F, lengthChange=F)) })
   
   # --- 7. PAGE : RECHERCHES SIMPLES ---
-  output$simple_query_params_ui <- renderUI({ 
-    req(input$simple_query_type)
-    switch(input$simple_query_type, 
-           "membres_statut" = selectInput("param_statut", "Choisir un statut :", choices = c("Actif", "Non-Actif"), multiple = TRUE),
-           "membres_poste" = selectInput("param_poste", "Choisir un poste :", choices = get_poste_choices(), multiple = TRUE),
-           "membres_profession" = selectInput("param_profession", "Choisir une profession :", choices = get_profession_choices(), multiple = TRUE),
-           "membres_pays" = selectInput("param_pays", "Choisir un pays :", choices = get_pays_choices(), multiple = TRUE),
-           "membres_anniversaire" = selectInput("param_mois", "Choisir un mois :", choices = setNames(1:12, month.name)),
-           "activites_periode" = dateRangeInput("param_periode", "Choisir une période :", start = Sys.Date() - 30, end = Sys.Date(), language="fr"), 
-           "cotisations_membre" = selectInput("param_membre_id", "Choisir un membre :", choices = get_membres_choices())
-    ) 
-  })
-  
-  simple_query_result_data <- eventReactive(input$run_simple_query, {
-    req(input$simple_query_type, db_pool)
-    query <- NULL
-    
-    # Construction de la requête en fonction du choix
-    if (input$simple_query_type == "membres_statut" && !is.null(input$param_statut)) {
-      query <- glue_sql("SELECT Nom, Prenom, Statut, Poste, Telephone FROM Membres WHERE Statut IN ({statuts*})", statuts = input$param_statut, .con = db_pool)
-    } else if (input$simple_query_type == "membres_poste" && !is.null(input$param_poste)) {
-      query <- glue_sql("SELECT Nom, Prenom, Poste, Statut, Telephone FROM Membres WHERE Poste IN ({postes*})", postes = input$param_poste, .con = db_pool)
-    } else if (input$simple_query_type == "membres_profession" && !is.null(input$param_profession)) {
-      query <- glue_sql("SELECT Nom, Prenom, Profession, Poste, Telephone FROM Membres WHERE Profession IN ({professions*})", professions = input$param_profession, .con = db_pool)
-    } else if (input$simple_query_type == "membres_pays" && !is.null(input$param_pays)) {
-      query <- glue_sql("SELECT Nom, Prenom, Ville, Pays, Telephone FROM Membres WHERE Pays IN ({pays_list*})", pays_list = input$param_pays, .con = db_pool)
-    } else if (input$simple_query_type == "membres_anniversaire" && !is.null(input$param_mois)) {
-      query <- sqlInterpolate(db_pool, "SELECT Nom, Prenom, Date_naissance, Telephone FROM Membres WHERE MONTH(Date_naissance) = ?mois ORDER BY DAY(Date_naissance)", mois = input$param_mois)
-    } else if (input$simple_query_type == "activites_periode" && !is.null(input$param_periode)) {
-      query <- sqlInterpolate(db_pool, "SELECT Theme, Date_activite, Type_activite, Lieu FROM Activites WHERE Date_activite BETWEEN ?start AND ?end ORDER BY Date_activite DESC", start = input$param_periode[1], end = input$param_periode[2])
-    } else if (input$simple_query_type == "cotisations_membre" && !is.null(input$param_membre_id)) {
-      query <- sqlInterpolate(db_pool, "SELECT c.Date_cotisation, c.Montant, c.Type_cotisation, c.Mode_paiement FROM Cotisations c WHERE c.ID_membre = ?id ORDER BY c.Date_cotisation DESC", id = input$param_membre_id)
-    }
-    
-    if (!is.null(query)) tryCatch(dbGetQuery(db_pool, query), error = function(e) data.frame(Erreur = e$message)) else data.frame()
-  })
-  
+  output$simple_query_params_ui <- renderUI({ req(input$simple_query_type); switch(input$simple_query_type, "membres_statut" = selectInput("param_statut", "Choisir un statut :", choices = c("Actif", "Non-Actif"), multiple = TRUE), "membres_poste" = selectInput("param_poste", "Choisir un poste :", choices = get_poste_choices(), multiple = TRUE), "membres_profession" = selectInput("param_profession", "Choisir une profession :", choices = get_profession_choices(), multiple = TRUE), "membres_pays" = selectInput("param_pays", "Choisir un pays :", choices = get_pays_choices(), multiple = TRUE), "membres_anniversaire" = selectInput("param_mois", "Choisir un mois :", choices = setNames(1:12, month.name)), "activites_periode" = dateRangeInput("param_periode", "Choisir une période :", start = Sys.Date() - 30, end = Sys.Date(), language="fr"), "cotisations_membre" = selectInput("param_membre_id", "Choisir un membre :", choices = get_membres_choices()) ) })
+  simple_query_result_data <- eventReactive(input$run_simple_query, { req(input$simple_query_type, db_pool); query <- NULL; if (input$simple_query_type == "membres_statut" && !is.null(input$param_statut)) { query <- glue_sql("SELECT Nom, Prenom, Statut, Poste, Telephone FROM Membres WHERE Statut IN ({statuts*})", statuts = input$param_statut, .con = db_pool) } else if (input$simple_query_type == "membres_poste" && !is.null(input$param_poste)) { query <- glue_sql("SELECT Nom, Prenom, Poste, Statut, Telephone FROM Membres WHERE Poste IN ({postes*})", postes = input$param_poste, .con = db_pool) } else if (input$simple_query_type == "membres_profession" && !is.null(input$param_profession)) { query <- glue_sql("SELECT Nom, Prenom, Profession, Poste, Telephone FROM Membres WHERE Profession IN ({professions*})", professions = input$param_profession, .con = db_pool) } else if (input$simple_query_type == "membres_pays" && !is.null(input$param_pays)) { query <- glue_sql("SELECT Nom, Prenom, Ville, Pays, Telephone FROM Membres WHERE Pays IN ({pays_list*})", pays_list = input$param_pays, .con = db_pool) } else if (input$simple_query_type == "membres_anniversaire" && !is.null(input$param_mois)) { query <- sqlInterpolate(db_pool, "SELECT Nom, Prenom, Date_naissance, Telephone FROM Membres WHERE MONTH(Date_naissance) = ?mois ORDER BY DAY(Date_naissance)", mois = input$param_mois) } else if (input$simple_query_type == "activites_periode" && !is.null(input$param_periode)) { query <- sqlInterpolate(db_pool, "SELECT Theme, Date_activite, Type_activite, Lieu FROM Activites WHERE Date_activite BETWEEN ?start AND ?end ORDER BY Date_activite DESC", start = input$param_periode[1], end = input$param_periode[2]) } else if (input$simple_query_type == "cotisations_membre" && !is.null(input$param_membre_id)) { query <- sqlInterpolate(db_pool, "SELECT c.Date_cotisation, c.Montant, c.Type_cotisation, c.Mode_paiement FROM Cotisations c WHERE c.ID_membre = ?id ORDER BY c.Date_cotisation DESC", id = input$param_membre_id) }; if (!is.null(query)) tryCatch(dbGetQuery(db_pool, query), error = function(e) data.frame(Erreur = e$message)) else data.frame() })
   output$simple_query_result_table <- DT::renderDataTable({ DT::datatable(simple_query_result_data(), options = list(pageLength = 10, scrollX = TRUE), rownames=FALSE) })
   output$simple_query_graph_ui <- renderUI({ if (nrow(simple_query_result_data()) > 0 && input$simple_query_type %in% c("cotisations_membre", "membres_statut")) { tagList(hr(), h4("Visualisation des résultats"), plotlyOutput("simple_query_plot")) } })
   plot_req_reactive <- reactive({ req(nrow(simple_query_result_data()) > 0); data <- simple_query_result_data(); p <- NULL; if (input$simple_query_type == "cotisations_membre") { p <- ggplot(data, aes(x=as.Date(Date_cotisation), y=Montant, fill=Type_cotisation, text = paste("Date:", as.Date(Date_cotisation), "<br>Montant:", Montant, "HTG<br>Type:", Type_cotisation))) + geom_col(position="stack") + labs(title="Cotisations pour le membre sélectionné", x="Date", y="Montant") } else if (input$simple_query_type == "membres_statut") { p <- data %>% count(Statut) %>% ggplot(aes(x=fct_reorder(Statut, -n), y=n, fill=Statut, text=paste("Statut:", Statut, "<br>Nombre:", n))) + geom_col() + labs(title="Répartition des membres trouvés par statut", x="Statut", y="Nombre") }; if (!is.null(p)) { p <- p + theme_minimal(base_size = 14) + theme(legend.position = "bottom"); ggplotly(p, tooltip = "text") %>% config(displaylogo = FALSE) } })
@@ -197,8 +236,11 @@ server <- function(input, output, session) {
   output$custom_query_output <- DT::renderDataTable({ DT::datatable(custom_query_result(), options=list(pageLength=10, scrollX=T), rownames=F)})
   
   # --- 9. PIED DE PAGE ET FIN DE SESSION ---
-  output$footer_last_update_text <- renderText({ 
-    paste("Version", APP_VERSION, "| Dernière mise à jour :", LAST_UPDATE_DATE) 
+  output$footer_last_update_text <- renderUI({ 
+    tagList(
+      tags$p(paste("Version", APP_VERSION), style="margin: 0;"),
+      tags$p(paste("Dernière mise à jour :", LAST_UPDATE_DATE), style="margin: 0;")
+    )
   })
 }
 
